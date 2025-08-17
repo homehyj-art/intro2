@@ -9,7 +9,7 @@
 
   body {
     font-family: 'Nanum Pen Script', cursive;
-    background-color: #ffe4e1; /* 부드러운 분홍 단색 */
+    background-color: #ffe4e1;
     padding: 20px;
     margin: 0;
     min-height: 100vh;
@@ -28,7 +28,7 @@
     border-radius: 20px;
     padding: 20px;
     max-width: 480px;
-    margin: 0 auto 30px;
+    margin: 0 auto 20px;
     box-shadow: 0 5px 15px rgba(255,105,145,0.3);
   }
 
@@ -52,18 +52,20 @@
     border: none;
     color: white;
     font-weight: bold;
-    font-size: 1.2rem;
-    padding: 10px 25px;
-    border-radius: 25px;
+    font-size: 1.1rem;
+    padding: 8px 20px;
+    border-radius: 20px;
     cursor: pointer;
     transition: background-color 0.3s ease;
-    margin-top: 10px;
-    display: block;
-    margin-left: auto;
-    margin-right: auto;
+    margin: 5px;
   }
   button:hover {
     background-color: #ff4d72;
+  }
+
+  #sortControls {
+    text-align: center;
+    margin-bottom: 20px;
   }
 
   #introList {
@@ -83,7 +85,7 @@
     padding: 20px;
     box-shadow: 0 4px 15px rgba(255,105,145,0.2);
     position: relative;
-    font-size: 1.15rem;
+    font-size: 1.1rem;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -98,6 +100,13 @@
     margin: 4px 0;
     color: #555;
     word-break: keep-all;
+  }
+
+  .card small {
+    display: block;
+    margin-top: 8px;
+    color: #888;
+    font-size: 0.9rem;
   }
 
   .actions {
@@ -118,13 +127,8 @@
     transform: scale(1.2);
   }
 
-  .like-btn {
-    color: #ff6f91;
-  }
-
-  .delete-btn {
-    color: #aaa;
-  }
+  .like-btn { color: #ff6f91; }
+  .delete-btn { color: #aaa; }
 
   .like-animate {
     animation: like-pop 0.4s ease forwards;
@@ -136,7 +140,6 @@
     100% { transform: scale(1); color: #ff6f91; }
   }
 
-  /* 모바일 대응: 카드 최소 크기 줄임 */
   @media (max-width: 600px) {
     #introList {
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -157,9 +160,13 @@
   <button id="postBtn">자기소개 올리기</button>
 </div>
 
+<div id="sortControls">
+  <button id="sortLatest">정렬: 최신순</button>
+  <button id="sortLikes">정렬: 좋아요순</button>
+</div>
+
 <div id="introList"></div>
 
-<!-- Firebase JS -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
   import { getDatabase, ref, push, set, onValue, update, remove, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
@@ -177,7 +184,9 @@
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-  let currentUserName = "";
+  let currentUserName = localStorage.getItem("currentUserName") || "";
+  let currentSort = "latest"; // 기본 정렬: 최신순
+  let introData = []; // 메모리에 데이터 보관
 
   const postBtn = document.getElementById("postBtn");
   postBtn.addEventListener("click", () => {
@@ -186,37 +195,23 @@
     const skill = document.getElementById("skillInput").value.trim();
     const intro = document.getElementById("introInput").value.trim();
 
-    if (!name) {
-      alert("이름을 입력해주세요!");
-      return;
-    }
-    if (!hobby) {
-      alert("취미를 입력해주세요!");
-      return;
-    }
-    if (!skill) {
-      alert("특기를 입력해주세요!");
-      return;
-    }
-    if (!intro) {
-      alert("자기소개를 작성해주세요!");
-      return;
-    }
+    if (!name) return alert("이름을 입력해주세요!");
+    if (!hobby) return alert("취미를 입력해주세요!");
+    if (!skill) return alert("특기를 입력해주세요!");
+    if (!intro) return alert("자기소개를 작성해주세요!");
 
     currentUserName = name;
+    localStorage.setItem("currentUserName", name);
 
     const newRef = push(ref(db, "introductions"));
     set(newRef, {
-      name: name,
-      hobby: hobby,
-      skill: skill,
-      intro: intro,
+      name, hobby, skill, intro,
       likes: 0,
       likedBy: {},
-      author: name
+      author: name,
+      timestamp: Date.now()
     });
 
-    // 입력창 초기화
     document.getElementById("nameInput").value = "";
     document.getElementById("hobbyInput").value = "";
     document.getElementById("skillInput").value = "";
@@ -224,102 +219,107 @@
   });
 
   function renderComments() {
-    const listRef = ref(db, "introductions");
     const list = document.getElementById("introList");
+    list.innerHTML = "";
 
-    onValue(listRef, (snapshot) => {
-      list.innerHTML = "";
-      snapshot.forEach((childSnap) => {
-        const data = childSnap.val();
-        const id = childSnap.key;
+    let sorted = [...introData];
+    if (currentSort === "latest") {
+      sorted.sort((a, b) => b.timestamp - a.timestamp);
+    } else if (currentSort === "likes") {
+      sorted.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+    }
 
-        const card = document.createElement("div");
-        card.classList.add("card");
+    sorted.forEach(item => {
+      const card = document.createElement("div");
+      card.classList.add("card");
+      const date = item.timestamp ? new Date(item.timestamp).toLocaleString("ko-KR") : "";
 
-        card.innerHTML = `
-          <h3>${escapeHtml(data.name)}</h3>
-          <p><b>취미:</b> ${escapeHtml(data.hobby)}</p>
-          <p><b>특기:</b> ${escapeHtml(data.skill)}</p>
-          <p><b>자기소개:</b> ${escapeHtml(data.intro)}</p>
-          <div class="actions">
-            <button class="like-btn" title="좋아요" data-id="${id}">👍 ${data.likes || 0}</button>
-            <button class="delete-btn" title="삭제" data-id="${id}">🗑️</button>
-          </div>
-        `;
+      card.innerHTML = `
+        <h3>${escapeHtml(item.name)}</h3>
+        <p><b>취미:</b> ${escapeHtml(item.hobby)}</p>
+        <p><b>특기:</b> ${escapeHtml(item.skill)}</p>
+        <p><b>자기소개:</b> ${escapeHtml(item.intro)}</p>
+        <small>작성일: ${date}</small>
+        <div class="actions">
+          <button class="like-btn" title="좋아요" data-id="${item.id}">👍 ${item.likes || 0}</button>
+          <button class="delete-btn" title="삭제" data-id="${item.id}">🗑️</button>
+        </div>
+      `;
+      list.appendChild(card);
+    });
 
-        list.appendChild(card);
-      });
-
-      // 좋아요 버튼 이벤트
-      document.querySelectorAll(".like-btn").forEach(btn => {
-        btn.onclick = async () => {
-          if (!currentUserName) {
-            alert("먼저 자기소개를 올려주세요!");
-            return;
+    // 좋아요 이벤트
+    document.querySelectorAll(".like-btn").forEach(btn => {
+      btn.onclick = async () => {
+        if (!currentUserName) return alert("먼저 자기소개를 올려주세요!");
+        const id = btn.getAttribute("data-id");
+        const commentRef = ref(db, "introductions/" + id);
+        const snapshot = await get(commentRef);
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          if (data.likedBy && data.likedBy[currentUserName]) {
+            return alert("이미 좋아요를 누르셨어요!");
           }
-          const commentId = btn.getAttribute("data-id");
-          const commentRef = ref(db, "introductions/" + commentId);
-          const snapshot = await get(commentRef);
-          if (snapshot.exists()) {
-            const data = snapshot.val();
-            if (data.likedBy && data.likedBy[currentUserName]) {
-              alert("이미 좋아요를 누르셨어요!");
-              return;
-            }
-            const likedBy = data.likedBy || {};
-            likedBy[currentUserName] = true;
-            await update(commentRef, {
-              likes: (data.likes || 0) + 1,
-              likedBy: likedBy
-            });
-            // 애니메이션 효과
-            btn.classList.add("like-animate");
-            setTimeout(() => btn.classList.remove("like-animate"), 400);
-          }
-        };
-      });
+          const likedBy = data.likedBy || {};
+          likedBy[currentUserName] = true;
+          await update(commentRef, {
+            likes: (data.likes || 0) + 1,
+            likedBy
+          });
+          btn.textContent = `👍 ${(data.likes || 0) + 1}`;
+          btn.classList.add("like-animate");
+          setTimeout(() => btn.classList.remove("like-animate"), 400);
+        }
+      };
+    });
 
-      // 삭제 버튼 이벤트
-      document.querySelectorAll(".delete-btn").forEach(btn => {
-        btn.onclick = async () => {
-          if (!currentUserName) {
-            alert("먼저 자기소개를 올려주세요!");
-            return;
+    // 삭제 이벤트
+    document.querySelectorAll(".delete-btn").forEach(btn => {
+      btn.onclick = async () => {
+        if (!currentUserName) return alert("먼저 자기소개를 올려주세요!");
+        const id = btn.getAttribute("data-id");
+        const commentRef = ref(db, "introductions/" + id);
+        const snapshot = await get(commentRef);
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          if (data.author !== currentUserName) {
+            return alert("본인만 삭제할 수 있어요!");
           }
-          const commentId = btn.getAttribute("data-id");
-          const commentRef = ref(db, "introductions/" + commentId);
-          const snapshot = await get(commentRef);
-          if (snapshot.exists()) {
-            const data = snapshot.val();
-            if (data.author !== currentUserName) {
-              alert("본인만 삭제할 수 있어요!");
-              return;
-            }
-            if (confirm("정말 삭제하시겠어요?")) {
-              await remove(commentRef);
-            }
+          if (confirm("정말 삭제하시겠어요?")) {
+            await remove(commentRef);
           }
-        };
-      });
+        }
+      };
     });
   }
 
-  // XSS 방지용 간단 escape 함수
+  // 데이터 가져오기
+  const listRef = ref(db, "introductions");
+  onValue(listRef, (snapshot) => {
+    introData = [];
+    snapshot.forEach(childSnap => {
+      introData.push({ id: childSnap.key, ...childSnap.val() });
+    });
+    renderComments();
+  });
+
+  // 정렬 버튼 이벤트
+  document.getElementById("sortLatest").onclick = () => {
+    currentSort = "latest";
+    renderComments();
+  };
+  document.getElementById("sortLikes").onclick = () => {
+    currentSort = "likes";
+    renderComments();
+  };
+
   function escapeHtml(text) {
-    return text.replace(/[&<>"']/g, function(m) {
-      return {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
-      }[m];
-    });
+    if (!text) return "";
+    return text.replace(/[&<>"']/g, m => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[m]));
   }
-
-  renderComments();
 </script>
 
 </body>
 </html>
-
